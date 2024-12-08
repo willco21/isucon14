@@ -4,15 +4,14 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"log/slog"
 )
 
 // このAPIをインスタンス内から一定間隔で叩かせることで、椅子とライドをマッチングさせる
 func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// MEMO: 一旦最も待たせているリクエストに適当な空いている椅子マッチさせる実装とする。おそらくもっといい方法があるはず…
-	rides := []Ride{}
-	if err := db.SelectContext(ctx, &rides, `SELECT * FROM rides WHERE chair_id IS NULL order by created_at`); err != nil {
+	ride := &Ride{}
+	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id IS NULL ORDER BY created_at LIMIT 1`); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -20,7 +19,6 @@ func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	slog.Info("rides fetched..")
 
 	chairs := []Chair{}
 	if err := db.SelectContext(ctx, &chairs, `WITH uncompleted_chairs AS (
@@ -60,17 +58,9 @@ from
 		return
 	}
 
-	chair_count := 0
-	// slog.Info("len(chairs)", len(chairs))
-	// slog.Info("len(rides)", len(rides))
-	for _, chair := range chairs {
-		if len(rides) >= chair_count {
-			if _, err := db.ExecContext(ctx, "UPDATE rides SET chair_id = ? WHERE id = ?", chair.ID, rides[chair_count].ID); err != nil {
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-			chair_count = chair_count + 1
-		}
+	if _, err := db.ExecContext(ctx, "UPDATE rides SET chair_id = ? WHERE id = ?", chairs[0].ID, ride.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
