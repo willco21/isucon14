@@ -7,6 +7,7 @@ if [ "${ENV:-}" == "local-dev" ]; then
   exit 0
 fi
 
+cp env.sh /home/isucon/env.sh
 . env.sh
 
 ISUCON_DB_HOST=${ISUCON_DB_HOST:-127.0.0.1}
