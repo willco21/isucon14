@@ -3,10 +3,17 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
+	"sort"
 )
 
 // このAPIをインスタンス内から一定間隔で叩かせることで、椅子とライドをマッチングさせる
+// ユーザーから近い椅子をマッチ
+// /  ridesのpickup_latitude / pickup_longitude
+// /  chair_locationsのlatitude / longitude
+// 移動距離が遠い場合には早い椅子をマッチ
+// ISUCON_MATCHING_INTERVALを小さくして、早くマッチさせる
 func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// MEMO: 一旦最も待たせているリクエストに適当な空いている椅子マッチさせる実装とする。おそらくもっといい方法があるはず…
@@ -58,7 +65,58 @@ from
 		return
 	}
 
-	if _, err := db.ExecContext(ctx, "UPDATE rides SET chair_id = ? WHERE id = ?", chairs[0].ID, ride.ID); err != nil {
+	coordinate := Coordinate{Latitude: ride.PickupLatitude, Longitude: ride.PickupLongitude}
+
+	nearbyChairs := []appGetNearbyChairsResponseChairDistance{}
+	for _, chair := range chairs {
+		if !chair.IsActive {
+			continue
+		}
+
+		// 最新の位置情報を取得
+		chairLocation := &ChairLocation{}
+		if err := db.GetContext(ctx, chairLocation,
+			`SELECT * FROM chair_locations WHERE chair_id = ? ORDER BY created_at DESC LIMIT 1`,
+			chair.ID,
+		); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			slog.Error("chairLocation")
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		/* distance := 50
+		if calculateDistance(coordinate.Latitude, coordinate.Longitude, chairLocation.Latitude, chairLocation.Longitude) <= distance {
+			nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChair{
+				ID:    chair.ID,
+				Name:  chair.Name,
+				Model: chair.Model,
+				CurrentCoordinate: Coordinate{
+					Latitude:  chairLocation.Latitude,
+					Longitude: chairLocation.Longitude,
+				},
+			})
+		} */
+		nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChairDistance{
+			ID:    chair.ID,
+			Name:  chair.Name,
+			Model: chair.Model,
+			CurrentCoordinate: Coordinate{
+				Latitude:  chairLocation.Latitude,
+				Longitude: chairLocation.Longitude,
+			},
+			Distance: calculateDistance(coordinate.Latitude, coordinate.Longitude, chairLocation.Latitude, chairLocation.Longitude),
+		})
+	}
+
+	sort.Slice(nearbyChairs, func(i, j int) bool {
+		return nearbyChairs[i].Distance < nearbyChairs[j].Distance
+	})
+
+	if _, err := db.ExecContext(ctx, "UPDATE rides SET chair_id = ? WHERE id = ?", nearbyChairs[0].ID, ride.ID); err != nil {
+		slog.Error("ExecContext")
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
