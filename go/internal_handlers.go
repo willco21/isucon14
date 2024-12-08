@@ -60,7 +60,7 @@ on chair_distances.chair_id = c.id
 inner join chair_locations cd
 on chair_distances.current_chair_location_id = cd.id
 where
-	created_at < NOW() - INTERVAL 3 SECOND;
+	cd.created_at < NOW() - INTERVAL 3 SECOND;
 `); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
