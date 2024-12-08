@@ -53,6 +53,19 @@ CREATE TABLE chair_locations
 CREATE INDEX idx_chair_locations_chair_id_created_at ON chair_locations (chair_id, created_at DESC);
 
 
+DROP TABLE IF EXISTS chair_distances;
+CREATE TABLE chair_distances
+(
+  id         INT NOT NULL AUTO_INCREMENT,
+  chair_id   VARCHAR(26) NOT NULL COMMENT '椅子ID',
+  current_chair_location_id  VARCHAR(26),
+  total_distance  INTEGER NOT NULL DEFAULT 0 COMMENT '総走行距離',
+  total_distance_updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '最終更新日時',
+  PRIMARY KEY (id),
+  UNIQUE (chair_id)
+)
+  COMMENT = '椅子の現在位置情報テーブル';
+
 DROP TABLE IF EXISTS users;
 CREATE TABLE users
 (

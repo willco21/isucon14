@@ -29,6 +29,14 @@ type ChairLocation struct {
 	CreatedAt time.Time `db:"created_at"`
 }
 
+type ChairDistance struct {
+	ID        int    `db:"id"`
+	ChairID   string    `db:"chair_id"`
+	CurrentChairLocationID   sql.NullString   `db:"current_chair_location_id"`
+	TotalDistance  int       `db:"total_distance"`
+	TotalDistanceUpdatedAt time.Time `db:"total_distance_updated_at"`
+}
+
 type User struct {
 	ID             string    `db:"id"`
 	Username       string    `db:"username"`

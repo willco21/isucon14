@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
+	"log/slog"
 	"net/http"
 
 	"github.com/oklog/ulid/v2"
@@ -49,6 +51,16 @@ func chairPostChairs(w http.ResponseWriter, r *http.Request) {
 		ctx,
 		"INSERT INTO chairs (id, owner_id, name, model, is_active, access_token) VALUES (?, ?, ?, ?, ?, ?)",
 		chairID, owner.ID, req.Name, req.Model, false, accessToken,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	_, err = db.ExecContext(
+		ctx,
+		"INSERT INTO chair_distances (chair_id) VALUES (?)",
+		chairID,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -126,6 +138,46 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+
+	distance := &ChairDistance{}
+	if err := tx.GetContext(ctx, distance, `SELECT * FROM chair_distances WHERE chair_id = ?`, chair.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	if distance.CurrentChairLocationID.Valid {
+		previous_location := &ChairLocation{}
+		if err := tx.GetContext(ctx, previous_location, `SELECT * FROM chair_locations WHERE id = ?`, distance.CurrentChairLocationID); err != nil {
+			slog.Error("distance.CurrentChairLocationID.Valid")
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		latitude_abs := math.Abs(float64(location.Latitude - previous_location.Latitude))
+		longitude_abs := math.Abs(float64(location.Longitude - previous_location.Longitude))
+		current_distance := latitude_abs + longitude_abs
+
+		if _, err := tx.ExecContext(
+			ctx,
+			`UPDATE chair_distances SET current_chair_location_id = ?, total_distance_updated_at = ?, total_distance = total_distance + ? where chair_id = ?`,
+			chairLocationID, location.CreatedAt, current_distance, chair.ID,
+		); err != nil {
+			slog.Error("UPDATE total_distance")
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+	} else {
+		if _, err := tx.ExecContext(
+			ctx,
+			`UPDATE chair_distances SET current_chair_location_id = ?, total_distance_updated_at = ? where chair_id = ?`,
+			chairLocationID, location.CreatedAt, chair.ID,
+		); err != nil {
+			slog.Error("UPDATE without total_distance")
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
+
 
 	ride := &Ride{}
 	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chair.ID); err != nil {
