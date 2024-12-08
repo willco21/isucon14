@@ -833,8 +833,6 @@ type appGetNearbyChairsResponseChair struct {
 
 type appGetNearbyChairsResponseChairDistance struct {
 	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	Model             string     `json:"model"`
 	CurrentCoordinate Coordinate `json:"current_coordinate"`
 	Distance          int        `json:"distance"`
 }

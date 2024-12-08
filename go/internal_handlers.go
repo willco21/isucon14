@@ -27,9 +27,7 @@ func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("Waiting rides count", "value", len(rides))
-
-	chairs := []Chair{}
+	chairs := []ChairLocation{}
 	if err := db.SelectContext(ctx, &chairs, `WITH uncompleted_chairs AS (
     select
         r.id ride_id,
@@ -54,9 +52,13 @@ active_available_chairs AS (
         and c.is_active = true
 )
 select
-    *
+    cd.*
 from
-    active_available_chairs
+    active_available_chairs c 
+inner join chair_distances
+on chair_distances.chair_id = c.id
+inner join chair_locations cd
+on chair_distances.current_chair_location_id =cd.id
 `); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -68,6 +70,13 @@ from
 	}
 
 	slog.Info("Remaing chairs count", "value", len(chairs))
+	slog.Info("Waiting rides count", "value", len(rides))
+	after_assined_count := 0
+	if len(rides) > len(chairs) {
+		after_assined_count = len(rides) - len(chairs)
+	}
+	slog.Info("After Assinged rides count", "value", after_assined_count)
+	
 	filtered_chair_ids := []string{}
 	for  _, ride := range rides {
 
@@ -76,36 +85,16 @@ from
 		nearbyChairs := []appGetNearbyChairsResponseChairDistance{}
 
 		// フィルタリングして新しいスライスを作成
-		filtered := chairs[:0]
+		filtered := []ChairLocation{}
 		for _, chair := range chairs {
-			if !contains(filtered_chair_ids, chair.ID) {
+			if !contains(filtered_chair_ids, chair.ChairID) {
 				filtered = append(filtered, chair)
 			}
 		}
 
-		for _, chair := range filtered {
-			if !chair.IsActive {
-				continue
-			}
-
-			// 最新の位置情報を取得
-			chairLocation := &ChairLocation{}
-			if err := db.GetContext(ctx, chairLocation,
-				`SELECT * FROM chair_locations WHERE chair_id = ? ORDER BY created_at DESC LIMIT 1`,
-				chair.ID,
-			); err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					continue
-				}
-				slog.Error("chairLocation")
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-
+		for _, chairLocation := range filtered {
 			nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChairDistance{
-				ID:    chair.ID,
-				Name:  chair.Name,
-				Model: chair.Model,
+				ID:    chairLocation.ChairID,
 				CurrentCoordinate: Coordinate{
 					Latitude:  chairLocation.Latitude,
 					Longitude: chairLocation.Longitude,
