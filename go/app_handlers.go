@@ -831,6 +831,14 @@ type appGetNearbyChairsResponseChair struct {
 	CurrentCoordinate Coordinate `json:"current_coordinate"`
 }
 
+type appGetNearbyChairsResponseChairDistance struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Model             string     `json:"model"`
+	CurrentCoordinate Coordinate `json:"current_coordinate"`
+	Distance          int        `json:"distance"`
+}
+
 func appGetNearbyChairs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	latStr := r.URL.Query().Get("latitude")

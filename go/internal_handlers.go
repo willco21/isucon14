@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sort"
 )
 
 // このAPIをインスタンス内から一定間隔で叩かせることで、椅子とライドをマッチングさせる
@@ -66,7 +67,7 @@ from
 
 	coordinate := Coordinate{Latitude: ride.PickupLatitude, Longitude: ride.PickupLongitude}
 
-	nearbyChairs := []appGetNearbyChairsResponseChair{}
+	nearbyChairs := []appGetNearbyChairsResponseChairDistance{}
 	for _, chair := range chairs {
 		if !chair.IsActive {
 			continue
@@ -86,7 +87,7 @@ from
 			return
 		}
 
-		distance := 50
+		/* distance := 50
 		if calculateDistance(coordinate.Latitude, coordinate.Longitude, chairLocation.Latitude, chairLocation.Longitude) <= distance {
 			nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChair{
 				ID:    chair.ID,
@@ -97,8 +98,22 @@ from
 					Longitude: chairLocation.Longitude,
 				},
 			})
-		}
+		} */
+		nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChairDistance{
+			ID:    chair.ID,
+			Name:  chair.Name,
+			Model: chair.Model,
+			CurrentCoordinate: Coordinate{
+				Latitude:  chairLocation.Latitude,
+				Longitude: chairLocation.Longitude,
+			},
+			Distance: calculateDistance(coordinate.Latitude, coordinate.Longitude, chairLocation.Latitude, chairLocation.Longitude),
+		})
 	}
+
+	sort.Slice(nearbyChairs, func(i, j int) bool {
+		return nearbyChairs[i].Distance < nearbyChairs[j].Distance
+	})
 
 	if _, err := db.ExecContext(ctx, "UPDATE rides SET chair_id = ? WHERE id = ?", nearbyChairs[0].ID, ride.ID); err != nil {
 		slog.Error("ExecContext")
