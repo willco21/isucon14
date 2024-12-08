@@ -17,8 +17,8 @@ import (
 func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// MEMO: 一旦最も待たせているリクエストに適当な空いている椅子マッチさせる実装とする。おそらくもっといい方法があるはず…
-	ride := &Ride{}
-	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id IS NULL ORDER BY created_at LIMIT 1`); err != nil {
+	rides := []Ride{}
+	if err := db.SelectContext(ctx, &rides, `SELECT * FROM rides WHERE chair_id IS NULL order by created_at`); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -26,6 +26,8 @@ func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+
+	slog.Info("Waiting rides count", "value", len(rides))
 
 	chairs := []Chair{}
 	if err := db.SelectContext(ctx, &chairs, `WITH uncompleted_chairs AS (
@@ -65,31 +67,42 @@ from
 		return
 	}
 
-	coordinate := Coordinate{Latitude: ride.PickupLatitude, Longitude: ride.PickupLongitude}
+	slog.Info("Remaing chairs count", "value", len(chairs))
+	filtered_chair_ids := []string{}
+	for  _, ride := range rides {
 
-	nearbyChairs := []appGetNearbyChairsResponseChairDistance{}
-	for _, chair := range chairs {
-		if !chair.IsActive {
-			continue
+		coordinate := Coordinate{Latitude: ride.PickupLatitude, Longitude: ride.PickupLongitude}
+
+		nearbyChairs := []appGetNearbyChairsResponseChairDistance{}
+
+		// フィルタリングして新しいスライスを作成
+		filtered := chairs[:0]
+		for _, chair := range chairs {
+			if !contains(filtered_chair_ids, chair.ID) {
+				filtered = append(filtered, chair)
+			}
 		}
 
-		// 最新の位置情報を取得
-		chairLocation := &ChairLocation{}
-		if err := db.GetContext(ctx, chairLocation,
-			`SELECT * FROM chair_locations WHERE chair_id = ? ORDER BY created_at DESC LIMIT 1`,
-			chair.ID,
-		); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+		for _, chair := range filtered {
+			if !chair.IsActive {
 				continue
 			}
-			slog.Error("chairLocation")
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
 
-		/* distance := 50
-		if calculateDistance(coordinate.Latitude, coordinate.Longitude, chairLocation.Latitude, chairLocation.Longitude) <= distance {
-			nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChair{
+			// 最新の位置情報を取得
+			chairLocation := &ChairLocation{}
+			if err := db.GetContext(ctx, chairLocation,
+				`SELECT * FROM chair_locations WHERE chair_id = ? ORDER BY created_at DESC LIMIT 1`,
+				chair.ID,
+			); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				slog.Error("chairLocation")
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+
+			nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChairDistance{
 				ID:    chair.ID,
 				Name:  chair.Name,
 				Model: chair.Model,
@@ -97,29 +110,32 @@ from
 					Latitude:  chairLocation.Latitude,
 					Longitude: chairLocation.Longitude,
 				},
+				Distance: calculateDistance(coordinate.Latitude, coordinate.Longitude, chairLocation.Latitude, chairLocation.Longitude),
 			})
-		} */
-		nearbyChairs = append(nearbyChairs, appGetNearbyChairsResponseChairDistance{
-			ID:    chair.ID,
-			Name:  chair.Name,
-			Model: chair.Model,
-			CurrentCoordinate: Coordinate{
-				Latitude:  chairLocation.Latitude,
-				Longitude: chairLocation.Longitude,
-			},
-			Distance: calculateDistance(coordinate.Latitude, coordinate.Longitude, chairLocation.Latitude, chairLocation.Longitude),
+		}
+
+		sort.Slice(nearbyChairs, func(i, j int) bool {
+			return nearbyChairs[i].Distance < nearbyChairs[j].Distance
 		})
-	}
 
-	sort.Slice(nearbyChairs, func(i, j int) bool {
-		return nearbyChairs[i].Distance < nearbyChairs[j].Distance
-	})
+		if _, err := db.ExecContext(ctx, "UPDATE rides SET chair_id = ? WHERE id = ?", nearbyChairs[0].ID, ride.ID); err != nil {
+			slog.Error("ExecContext")
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 
-	if _, err := db.ExecContext(ctx, "UPDATE rides SET chair_id = ? WHERE id = ?", nearbyChairs[0].ID, ride.ID); err != nil {
-		slog.Error("ExecContext")
-		writeError(w, http.StatusInternalServerError, err)
-		return
+		// 次回の処理では当該Chairは使用しない
+		filtered_chair_ids = append(filtered_chair_ids, nearbyChairs[0].ID)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func contains(slice []string, target string) bool {
+    for _, s := range slice {
+        if s == target {
+            return true
+        }
+    }
+    return false
 }
