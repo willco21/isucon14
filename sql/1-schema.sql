@@ -97,6 +97,8 @@ CREATE TABLE rides
 )
   COMMENT = 'ライド情報テーブル';
 
+ CREATE INDEX idx_rides_chair_id_updated_at ON rides (chair_id, updated_at DESC);
+
 DROP TABLE IF EXISTS ride_statuses;
 CREATE TABLE ride_statuses
 (
@@ -139,3 +141,5 @@ CREATE TABLE coupons
   PRIMARY KEY (user_id, code)
 )
   COMMENT 'クーポンテーブル';
+
+CREATE INDEX idx_coupons_used_by ON coupons (used_by);
